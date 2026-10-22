@@ -1,0 +1,41 @@
+# Slim Tomcat 9 image for Deplexo's 128 MB free tier.
+# Built from a JRE-only alpine base (~110 MB uncompressed) instead of the
+# official tomcat image (~270 MB) so it fits the 250 MB disk quota.
+FROM eclipse-temurin:11-jre-alpine
+
+ENV TOMCAT_VERSION=9.0.123 \
+    CATALINA_HOME=/opt/tomcat \
+    CATALINA_TMPDIR=/tmp/tomcat/temp \
+    LANG=C.UTF-8
+
+# busybox wget/tar/sed ship with alpine, so nothing extra is installed
+RUN set -eux; \
+    mkdir -p "$CATALINA_HOME"; \
+    wget -qO /tmp/tomcat.tgz "https://archive.apache.org/dist/tomcat/tomcat-9/v${TOMCAT_VERSION}/bin/apache-tomcat-${TOMCAT_VERSION}.tar.gz"; \
+    tar -xzf /tmp/tomcat.tgz -C "$CATALINA_HOME" --strip-components=1; \
+    rm -f /tmp/tomcat.tgz; \
+    rm -rf "$CATALINA_HOME"/webapps/* \
+           "$CATALINA_HOME"/webapps/.[!.]* \
+           "$CATALINA_HOME"/logs/* \
+           "$CATALINA_HOME"/temp/*; \
+    mkdir -p /tmp/tomcat/work /tmp/tomcat/temp; \
+    chmod -R a+rwX /tmp/tomcat
+
+# the war is deployed as the ROOT context, so the app answers on "/"
+COPY attendance.war "$CATALINA_HOME/webapps/ROOT.war"
+COPY tomcat-server.xml "$CATALINA_HOME/conf/server.xml"
+
+# Keep the JVM inside the 128 MB cgroup: small heap, caps instead of reservations.
+ENV JAVA_OPTS="-Xms16m -Xmx48m \
+ -XX:MaxMetaspaceSize=64m \
+ -XX:ReservedCodeCacheSize=16m \
+ -XX:MaxDirectMemorySize=8m \
+ -XX:+UseSerialGC \
+ -XX:TieredStopAtLevel=1 \
+ -Xss512k \
+ -Djava.awt.headless=true \
+ -Dfile.encoding=UTF-8 \
+ -Djava.io.tmpdir=/tmp/tomcat/temp"
+
+EXPOSE 8080
+CMD ["/opt/tomcat/bin/catalina.sh", "run"]
